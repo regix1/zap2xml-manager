@@ -112,35 +112,44 @@ def _build_url(lineup_id: str, headend_id: str, country: str, postal: str, time_
     return f"{BASE_URL}?{qs}"
 
 
+def _is_valid_value(val: Any) -> bool:
+    """Check if a value is valid (not null, empty, or placeholder)."""
+    if val is None:
+        return False
+    if isinstance(val, str):
+        v = val.strip().lower()
+        return v not in ("", "null", "none", "n/a", "independent", "ind")
+    return bool(val)
+
+
 def _normalize_channel(ch: dict[str, Any]) -> dict[str, Any]:
     """Normalize channel data from API response."""
     call_sign = ch.get("callSign") or ""
 
     # Get affiliate/network from all possible API fields
-    # The API may return: affiliateCallSign, affiliateName, affiliate, networkAffiliation
-    affiliate = (
-        ch.get("affiliateCallSign") or
-        ch.get("affiliateName") or
-        ch.get("affiliate") or
-        ch.get("networkAffiliation") or
-        ch.get("network") or
-        ""
-    )
-
-    # Skip unhelpful values
-    if affiliate.lower() in ("independent", "ind", ""):
-        affiliate = ""
+    # Check each field and use the first valid one
+    affiliate = ""
+    for field in ["affiliateName", "affiliateCallSign", "affiliate", "networkAffiliation", "network"]:
+        val = ch.get(field)
+        if _is_valid_value(val):
+            affiliate = val
+            break
 
     # Get the station name (full name like "WABC-TV New York" or "Cartoon Network")
-    station_name = (
-        ch.get("name") or
-        ch.get("stationName") or
-        ch.get("displayName") or
-        ""
-    )
+    station_name = ""
+    for field in ["name", "stationName", "displayName"]:
+        val = ch.get(field)
+        if _is_valid_value(val):
+            station_name = val
+            break
 
     # Get preferred/enhanced call sign if available
-    preferred_call_sign = ch.get("preferredCallSign") or ch.get("enhancedCallSign") or ""
+    preferred_call_sign = ""
+    for field in ["preferredCallSign", "enhancedCallSign"]:
+        val = ch.get(field)
+        if _is_valid_value(val):
+            preferred_call_sign = val
+            break
 
     return {
         "stationId": ch.get("stationId") or ch.get("channelId"),
