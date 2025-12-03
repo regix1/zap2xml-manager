@@ -292,8 +292,11 @@ def main() -> int:
 
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
-    # TUI command (default)
-    tui_parser = subparsers.add_parser("tui", help="Launch interactive TUI (default)")
+    # CLI command (default)
+    cli_parser = subparsers.add_parser("cli", help="Launch interactive CLI (default)")
+
+    # TUI command (legacy)
+    tui_parser = subparsers.add_parser("tui", help="Launch Textual TUI (requires textual)")
 
     # Download command (CLI mode)
     dl_parser = subparsers.add_parser("download", help="Download EPG data (non-interactive)")
@@ -338,20 +341,27 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    # Default to TUI if no command specified
-    if args.command is None or args.command == "tui":
+    # Default to CLI if no command specified
+    if args.command is None or args.command == "cli":
+        try:
+            from .cli import run_cli
+            run_cli()
+            return 0
+        except ImportError as e:
+            print(f"CLI dependencies not installed: {e}", file=sys.stderr)
+            print("Install with: pip install rich", file=sys.stderr)
+            return 1
+
+    elif args.command == "tui":
         try:
             from .tui import run_tui
             run_tui()
             return 0
         except ImportError as e:
             print(f"TUI dependencies not installed: {e}", file=sys.stderr)
-            print("Install with: pip install zap2xml-manager[tui]", file=sys.stderr)
+            print("Install with: pip install textual", file=sys.stderr)
             print()
-            print("Alternatively, use these commands:")
-            print("  zap2xml-manager serve    - Run as background server with scheduling")
-            print("  zap2xml-manager download - One-time EPG download")
-            print("  zap2xml-manager config   - View/set configuration")
+            print("Or use the default Rich CLI: zap2xml-manager cli")
             return 1
 
     elif args.command == "download":
