@@ -410,8 +410,14 @@ class Zap2XMLManagerApp(App):
             self.log_message("Server already running", level="warning")
             return
 
+        import threading
+        main_thread_id = threading.get_ident()
+
         def log_callback(msg: str) -> None:
-            self.call_from_thread(self.log_message, msg)
+            if threading.get_ident() == main_thread_id:
+                self.log_message(msg)
+            else:
+                self.call_from_thread(self.log_message, msg)
 
         self.server = EPGServer(
             self.config,
