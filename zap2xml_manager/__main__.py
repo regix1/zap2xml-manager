@@ -179,13 +179,15 @@ def show_status() -> None:
 
 def run_server(args: argparse.Namespace) -> int:
     """Run the HTTP server to serve EPG files."""
-    from .server import EPGServer
+    from .server import EPGServer, get_local_ip
 
     config = Config.load()
 
     # Override with CLI args
     if args.port:
         config.server_port = args.port
+    if args.host:
+        config.server_host = args.host
     if args.refresh_interval:
         config.refresh_interval_hours = args.refresh_interval
         config.auto_refresh_enabled = True
@@ -194,9 +196,11 @@ def run_server(args: argparse.Namespace) -> int:
     if args.refresh_now:
         config.auto_refresh_enabled = True
 
+    local_ip = get_local_ip()
     print(f"zap2xml-manager v{__version__}")
     print(f"Serving EPG files from: {config.output_dir}")
-    print(f"Server URL: http://0.0.0.0:{config.server_port}/")
+    print(f"Binding to: {config.server_host}:{config.server_port}")
+    print(f"Access URL: http://{local_ip}:{config.server_port}/")
     if config.auto_refresh_enabled:
         print(f"Auto-refresh: every {config.refresh_interval_hours} hours")
     else:
@@ -205,7 +209,7 @@ def run_server(args: argparse.Namespace) -> int:
     print("Press Ctrl+C to stop")
     print()
 
-    server = EPGServer(config, port=config.server_port, log_callback=print)
+    server = EPGServer(config, host=config.server_host, port=config.server_port, log_callback=print)
 
     def signal_handler(sig, frame):
         print("\nShutting down...")
@@ -298,6 +302,7 @@ def main() -> int:
 
     # Serve command (daemon mode)
     serve_parser = subparsers.add_parser("serve", help="Start server with auto-refresh scheduling")
+    serve_parser.add_argument("-H", "--host", help="Host/IP to bind to (default: 0.0.0.0)")
     serve_parser.add_argument("-p", "--port", type=int, help="Server port (default: 9195)")
     serve_parser.add_argument("-i", "--refresh-interval", type=int, metavar="HOURS",
                               help="Auto-refresh interval in hours (enables auto-refresh)")

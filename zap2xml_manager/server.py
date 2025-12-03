@@ -17,9 +17,27 @@ from typing import Callable, Optional
 from .config import Config
 
 
+def get_local_ip() -> str:
+    """Get the local IP address that can reach external networks."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
 class ReusableHTTPServer(HTTPServer):
     """HTTPServer with SO_REUSEADDR enabled."""
     allow_reuse_address = True
+
+    def server_bind(self):
+        """Override to set additional socket options for Windows compatibility."""
+        # Set SO_REUSEADDR before binding
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        super().server_bind()
 
 
 class EPGRequestHandler(SimpleHTTPRequestHandler):
@@ -53,6 +71,10 @@ class EPGRequestHandler(SimpleHTTPRequestHandler):
             # API endpoints
             if path == "api/status":
                 self._send_json(self._get_status())
+                return
+
+            if path == "api/health" or path == "health":
+                self._send_json({"status": "ok", "time": datetime.now().isoformat()})
                 return
 
             if path == "api/refresh":
@@ -184,16 +206,44 @@ class EPGServer:
         EPGRequestHandler.log_callback = self.log_callback
         EPGRequestHandler.scheduler = self.scheduler
 
-        try:
-            self.server = ReusableHTTPServer((self.host, self.port), EPGRequestHandler)
-            self.thread = threading.Thread(target=self._serve, daemon=True)
-            self.thread.start()
-            self._running = True
-            self.log_callback(f"EPG server started on http://{self.host}:{self.port}/")
-            return True
-        except OSError as e:
-            self.log_callback(f"Failed to start server: {e}")
-            return False
+        # Determine the host to bind to
+        bind_host = self.host
+        local_ip = get_local_ip()
+
+        # If host is 0.0.0.0, also try binding to specific IP on Windows
+        hosts_to_try = [bind_host]
+        if bind_host == "0.0.0.0" and local_ip != "127.0.0.1":
+            # On Windows, sometimes binding to the specific IP works better
+            hosts_to_try.append(local_ip)
+
+        last_error = None
+        for try_host in hosts_to_try:
+            try:
+                self.log_callback(f"Attempting to bind to {try_host}:{self.port}...")
+                self.server = ReusableHTTPServer((try_host, self.port), EPGRequestHandler)
+                self.log_callback(f"Server socket created, starting thread...")
+                self.thread = threading.Thread(target=self._serve, daemon=True)
+                self.thread.start()
+                self._running = True
+                self.host = try_host  # Update to actual bound host
+
+                # Verify the server is actually listening
+                if self._verify_port_open():
+                    self.log_callback(f"EPG server started on http://{try_host}:{self.port}/")
+                    self.log_callback(f"Access from other devices: http://{local_ip}:{self.port}/")
+                    return True
+                else:
+                    self.log_callback(f"WARNING: Server started but port {self.port} not responding locally")
+                    self.log_callback(f"EPG server started on http://{try_host}:{self.port}/ (unverified)")
+                    self.log_callback(f"Access from other devices: http://{local_ip}:{self.port}/")
+                    return True
+            except OSError as e:
+                last_error = e
+                self.log_callback(f"Failed to bind to {try_host}:{self.port}: {e}")
+                continue
+
+        self.log_callback(f"Failed to start server on any address: {last_error}")
+        return False
 
     def _serve(self) -> None:
         """Run the server (called in background thread)."""
@@ -203,6 +253,19 @@ class EPGServer:
             except Exception as e:
                 self.log_callback(f"Server error: {e}")
                 self._running = False
+
+    def _verify_port_open(self) -> bool:
+        """Verify the server port is actually accessible."""
+        import time
+        time.sleep(0.5)  # Give server time to start
+        try:
+            test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            test_sock.settimeout(2)
+            result = test_sock.connect_ex(("127.0.0.1", self.port))
+            test_sock.close()
+            return result == 0
+        except Exception:
+            return False
 
     def _on_refresh_complete(self, success: bool, message: str) -> None:
         """Called when a scheduled refresh completes."""
