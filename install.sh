@@ -5,6 +5,10 @@
 
 set -e
 
+INSTALL_DIR="/opt/zap2xml-manager"
+VENV_DIR="$INSTALL_DIR/venv"
+BIN_LINK="/usr/local/bin/zap2xml-manager"
+
 echo "==================================="
 echo "  zap2xml-manager installer"
 echo "==================================="
@@ -35,41 +39,25 @@ install_packages() {
     fi
 }
 
-# Check if running as root for package installation
-check_root() {
-    if [ "$EUID" -ne 0 ]; then
-        echo "Note: Not running as root. May need sudo for system packages."
-        return 1
-    fi
-    return 0
-}
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    echo "Error: Please run as root (sudo ./install.sh)"
+    exit 1
+fi
 
 # Check for Python
 if ! command -v python3 &> /dev/null; then
     echo "Python3 not found. Installing..."
-    if check_root; then
-        install_packages
-    else
-        echo "Error: Python3 is not installed."
-        echo "Run: sudo apt-get install python3 python3-pip python3-venv"
-        exit 1
-    fi
+    install_packages
 fi
 
-# Check for pip
-if ! python3 -m pip --version &> /dev/null; then
-    echo "pip not found. Installing..."
-    if check_root; then
-        install_packages
-    else
-        echo "Error: pip is not installed."
-        echo "Run: sudo apt-get install python3-pip"
-        exit 1
-    fi
+# Check for venv module
+if ! python3 -m venv --help &> /dev/null; then
+    echo "python3-venv not found. Installing..."
+    install_packages
 fi
 
 echo "Python3: $(python3 --version)"
-echo "pip: $(python3 -m pip --version)"
 echo ""
 
 # Pull latest changes if in a git repo
@@ -79,14 +67,27 @@ if [ -d ".git" ]; then
     echo ""
 fi
 
-# Uninstall old version first
-echo "Removing old installation..."
-python3 -m pip uninstall -y zap2xml-manager 2>/dev/null || true
+# Create install directory
+echo "Setting up installation directory..."
+mkdir -p "$INSTALL_DIR"
 
-# Install the package with force reinstall
+# Copy source files
+cp -r zap2xml_manager "$INSTALL_DIR/"
+cp pyproject.toml "$INSTALL_DIR/"
+
+# Create/update virtual environment
+echo "Creating virtual environment..."
+python3 -m venv "$VENV_DIR" --clear
+
+# Install package in venv
 echo "Installing zap2xml-manager..."
-python3 -m pip install . --force-reinstall --no-cache-dir --break-system-packages 2>/dev/null || \
-python3 -m pip install . --force-reinstall --no-cache-dir
+"$VENV_DIR/bin/pip" install --upgrade pip
+"$VENV_DIR/bin/pip" install "$INSTALL_DIR"
+
+# Create symlink for easy access
+echo "Creating command symlink..."
+rm -f "$BIN_LINK"
+ln -s "$VENV_DIR/bin/zap2xml-manager" "$BIN_LINK"
 
 echo ""
 echo "==================================="
