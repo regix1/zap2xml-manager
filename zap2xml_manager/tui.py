@@ -363,7 +363,7 @@ class Zap2XMLManagerApp(App):
         self.log_message("Settings saved", level="success")
         self.update_status("Settings saved")
 
-    async def action_download(self) -> None:
+    def action_download(self) -> None:
         """Download EPG data."""
         if self.is_downloading:
             self.log_message("Download already in progress", level="warning")
@@ -381,24 +381,27 @@ class Zap2XMLManagerApp(App):
 
         self.log_message("Starting EPG download...")
 
-        def log_callback(msg: str) -> None:
-            self.call_from_thread(self.log_message, msg)
+        def do_download() -> None:
+            def log_callback(msg: str) -> None:
+                self.call_from_thread(self.log_message, msg)
 
-        manager = EPGManager(self.config, log_callback=log_callback)
+            manager = EPGManager(self.config, log_callback=log_callback)
 
-        try:
-            result = await self.run_worker(manager.download_epg)
-            if result.success:
-                self.log_message(result.message, level="success")
-                self.update_status(f"Download complete: {result.file_path}")
-            else:
-                self.log_message(result.message, level="error")
-                self.update_status(f"Download failed: {result.message}")
-        except Exception as e:
-            self.log_message(f"Download error: {e}", level="error")
-            self.update_status(f"Error: {e}")
-        finally:
-            self.is_downloading = False
+            try:
+                result = manager.download_epg()
+                if result.success:
+                    self.call_from_thread(self.log_message, result.message, "success")
+                    self.call_from_thread(self.update_status, f"Download complete: {result.file_path}")
+                else:
+                    self.call_from_thread(self.log_message, result.message, "error")
+                    self.call_from_thread(self.update_status, f"Download failed: {result.message}")
+            except Exception as e:
+                self.call_from_thread(self.log_message, f"Download error: {e}", "error")
+                self.call_from_thread(self.update_status, f"Error: {e}")
+            finally:
+                self.is_downloading = False
+
+        self.run_worker(do_download, thread=True)
 
     def action_refresh(self) -> None:
         """Refresh the display."""
