@@ -114,12 +114,23 @@ def _build_url(lineup_id: str, headend_id: str, country: str, postal: str, time_
 
 def _normalize_channel(ch: dict[str, Any]) -> dict[str, Any]:
     """Normalize channel data."""
+    # Get the affiliate/network name (e.g., "ABC", "CBS", "Cartoon Network")
+    affiliate = (
+        ch.get("affiliateName") or
+        ch.get("affiliateCallSign") or
+        ch.get("affiliate") or
+        ""
+    )
+    # Get the station name (full name like "WABC-TV New York")
+    station_name = ch.get("name") or ch.get("stationName") or ""
+
     return {
         "stationId": ch.get("stationId") or ch.get("channelId"),
         "channelId": ch.get("channelId"),
-        "callSign": ch.get("callSign") or ch.get("name"),
+        "callSign": ch.get("callSign"),
         "channelNo": ch.get("channelNo") or ch.get("channel"),
-        "affiliateName": ch.get("affiliateName"),
+        "affiliateName": affiliate,
+        "stationName": station_name,
         "thumbnail": ch.get("thumbnail"),
         "events": [],
     }
@@ -222,7 +233,12 @@ def fetch_zap2it_epg(
                 for ch in data.get("channels", []) or []:
                     cid = str(ch.get("channelId"))
                     if cid not in channels_map:
-                        channels_map[cid] = _normalize_channel(ch)
+                        normalized = _normalize_channel(ch)
+                        channels_map[cid] = normalized
+                        # Log channel info for debugging
+                        log(f"    Channel: {normalized.get('callSign')} | "
+                            f"Affiliate: {normalized.get('affiliateName') or '(none)'} | "
+                            f"Name: {normalized.get('stationName') or '(none)'}")
                     for ev in ch.get("events", []) or []:
                         _merge_filter_tags(ev)
                         channels_map[cid]["events"].append(ev)
@@ -243,9 +259,14 @@ def fetch_zap2it_epg(
     if not channels_map:
         return FetchResult(False, "No channels found in response")
 
+    # Sort channels: by affiliate name first (to group similar channels), then by call sign
     channels = sorted(
         channels_map.values(),
-        key=lambda c: (str(c.get("callSign") or "").casefold(), str(c.get("channelNo") or ""))
+        key=lambda c: (
+            str(c.get("affiliateName") or c.get("stationName") or "zzz").casefold(),
+            str(c.get("callSign") or "").casefold(),
+            str(c.get("channelNo") or "")
+        )
     )
 
     # Write XMLTV
@@ -268,27 +289,34 @@ def _write_xmltv(channels: list[dict[str, Any]], out_path: Path, prefer_affiliat
         cid = str(ch.get("stationId") or ch.get("channelId") or "")
         ch_el = ET.SubElement(tv, "channel", {"id": cid})
 
-        call_sign = ch.get("callSign")
-        affiliate = ch.get("affiliateName")
-        channel_no = ch.get("channelNo")
+        call_sign = ch.get("callSign") or ""
+        affiliate = ch.get("affiliateName") or ""
+        station_name = ch.get("stationName") or ""
+        channel_no = ch.get("channelNo") or ""
+
+        # Determine the best display name
+        # Priority: station_name > affiliate > call_sign
+        friendly_name = station_name or affiliate or call_sign
 
         # Build display names based on preference
         if prefer_affiliate_names:
-            # Put affiliate/network name first (e.g., "ABC" before "WABCTV")
-            if affiliate:
-                ET.SubElement(ch_el, "display-name").text = str(affiliate)
-            if call_sign:
+            # Put friendly name first (station name or affiliate like "ABC", "Cartoon Network")
+            if friendly_name:
+                ET.SubElement(ch_el, "display-name").text = str(friendly_name)
+            # Add call sign as secondary if different from friendly name
+            if call_sign and call_sign != friendly_name:
                 ET.SubElement(ch_el, "display-name").text = str(call_sign)
-            if affiliate and call_sign:
-                ET.SubElement(ch_el, "display-name").text = f"{affiliate} ({call_sign})"
+            # Add channel number
             if channel_no:
                 ET.SubElement(ch_el, "display-name").text = str(channel_no)
         else:
-            # Default: call sign first
+            # Default: call sign first, then other names
             if call_sign:
                 ET.SubElement(ch_el, "display-name").text = str(call_sign)
-            if affiliate:
+            if affiliate and affiliate != call_sign:
                 ET.SubElement(ch_el, "display-name").text = str(affiliate)
+            if station_name and station_name != call_sign and station_name != affiliate:
+                ET.SubElement(ch_el, "display-name").text = str(station_name)
             if call_sign and affiliate:
                 ET.SubElement(ch_el, "display-name").text = f"{call_sign} {affiliate}"
 
