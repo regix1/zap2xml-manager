@@ -148,6 +148,7 @@ def fetch_zap2it_epg(
     delay_seconds: int = 0,
     user_agent: str = "",
     log_callback: Optional[Callable[[str], None]] = None,
+    prefer_affiliate_names: bool = False,
 ) -> FetchResult:
     """Fetch EPG data from Zap2it/Gracenote."""
     log = log_callback or (lambda msg: print(msg, file=sys.stderr, flush=True))
@@ -253,12 +254,12 @@ def fetch_zap2it_epg(
     safe_id = re.sub(r"[^\w\-]", "_", lineup_id)
     output_path = temp_dir / f"zap2it_{safe_id}.xml"
 
-    _write_xmltv(channels, output_path)
+    _write_xmltv(channels, output_path, prefer_affiliate_names=prefer_affiliate_names)
 
     return FetchResult(True, "OK", str(output_path))
 
 
-def _write_xmltv(channels: list[dict[str, Any]], out_path: Path) -> None:
+def _write_xmltv(channels: list[dict[str, Any]], out_path: Path, prefer_affiliate_names: bool = False) -> None:
     """Write XMLTV format to file."""
     tv = ET.Element("tv")
 
@@ -269,12 +270,27 @@ def _write_xmltv(channels: list[dict[str, Any]], out_path: Path) -> None:
 
         call_sign = ch.get("callSign")
         affiliate = ch.get("affiliateName")
-        if call_sign:
-            ET.SubElement(ch_el, "display-name").text = str(call_sign)
-        if affiliate:
-            ET.SubElement(ch_el, "display-name").text = str(affiliate)
-        if call_sign and affiliate:
-            ET.SubElement(ch_el, "display-name").text = f"{call_sign} {affiliate}"
+        channel_no = ch.get("channelNo")
+
+        # Build display names based on preference
+        if prefer_affiliate_names:
+            # Put affiliate/network name first (e.g., "ABC" before "WABCTV")
+            if affiliate:
+                ET.SubElement(ch_el, "display-name").text = str(affiliate)
+            if call_sign:
+                ET.SubElement(ch_el, "display-name").text = str(call_sign)
+            if affiliate and call_sign:
+                ET.SubElement(ch_el, "display-name").text = f"{affiliate} ({call_sign})"
+            if channel_no:
+                ET.SubElement(ch_el, "display-name").text = str(channel_no)
+        else:
+            # Default: call sign first
+            if call_sign:
+                ET.SubElement(ch_el, "display-name").text = str(call_sign)
+            if affiliate:
+                ET.SubElement(ch_el, "display-name").text = str(affiliate)
+            if call_sign and affiliate:
+                ET.SubElement(ch_el, "display-name").text = f"{call_sign} {affiliate}"
 
         thumb = ch.get("thumbnail")
         if thumb:

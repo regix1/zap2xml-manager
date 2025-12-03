@@ -73,6 +73,7 @@ def show_config_info() -> None:
     print(f"  Country: {config.country}")
     print(f"  Postal code: {config.postal_code or '(none)'}")
     print(f"  ESPN+ enabled: {config.espn_plus_enabled}")
+    print(f"  Friendly names: {config.prefer_affiliate_names}")
     print(f"  Auto-refresh: {config.auto_refresh_enabled} (every {config.refresh_interval_hours}h)")
     print(f"  Last refresh: {config.last_refresh or 'Never'}")
 
@@ -272,6 +273,10 @@ def set_config(args: argparse.Namespace) -> int:
         config.output_dir = args.output_dir
         print(f"Set output_dir: {config.output_dir}")
 
+    if args.friendly_names is not None:
+        config.prefer_affiliate_names = args.friendly_names
+        print(f"Set prefer_affiliate_names: {config.prefer_affiliate_names}")
+
     config.save()
     print("\nConfiguration saved.")
     return 0
@@ -325,6 +330,8 @@ def main() -> int:
                             help="Set refresh interval in hours")
     cfg_parser.add_argument("-p", "--port", type=int, help="Set server port")
     cfg_parser.add_argument("-o", "--output-dir", help="Set output directory")
+    cfg_parser.add_argument("--friendly-names", type=lambda x: x.lower() == "true", metavar="true|false",
+                            help="Use friendly channel names (ABC instead of W25DWD6)")
 
     # Status command
     status_parser = subparsers.add_parser("status", help="Show current status and EPG file info")
@@ -353,7 +360,8 @@ def main() -> int:
     elif args.command == "config":
         # If any setter args provided, set them
         if any([args.lineup, args.country, args.postal, args.espn is not None,
-                args.auto_refresh is not None, args.refresh_interval, args.port, args.output_dir]):
+                args.auto_refresh is not None, args.refresh_interval, args.port, args.output_dir,
+                args.friendly_names is not None]):
             return set_config(args)
         else:
             show_config_info()

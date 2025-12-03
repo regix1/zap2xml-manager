@@ -46,6 +46,7 @@ class Config:
     timespan_hours: int = 72
     delay_seconds: int = 0
     merge_lineups: bool = True
+    prefer_affiliate_names: bool = False  # Use network names (ABC, NBC) instead of call signs
 
     # ESPN+ settings
     espn_plus_enabled: bool = False

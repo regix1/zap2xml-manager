@@ -130,6 +130,10 @@ class SettingsForm(Static):
             yield Label("Merge Lineups:", classes="form-label")
             yield Switch(value=self.config.merge_lineups, id="merge_lineups")
 
+        with Horizontal(classes="form-row"):
+            yield Label("Friendly Names:", classes="form-label")
+            yield Switch(value=self.config.prefer_affiliate_names, id="prefer_affiliate_names")
+
         yield Label("Server Settings", classes="section-header")
 
         with Horizontal(classes="form-row"):
@@ -184,6 +188,7 @@ class SettingsForm(Static):
         values["output_dir"] = self.query_one("#output_dir", Input).value.strip()
         values["output_filename"] = self.query_one("#output_filename", Input).value.strip() or "zap2xml.xml"
         values["merge_lineups"] = self.query_one("#merge_lineups", Switch).value
+        values["prefer_affiliate_names"] = self.query_one("#prefer_affiliate_names", Switch).value
 
         values["server_enabled"] = self.query_one("#server_enabled", Switch).value
         try:
@@ -359,6 +364,7 @@ class Zap2XMLManagerApp(App):
         self.config.output_dir = values["output_dir"]
         self.config.output_filename = values["output_filename"]
         self.config.merge_lineups = values["merge_lineups"]
+        self.config.prefer_affiliate_names = values["prefer_affiliate_names"]
         self.config.server_enabled = values["server_enabled"]
         self.config.server_port = values["server_port"]
 

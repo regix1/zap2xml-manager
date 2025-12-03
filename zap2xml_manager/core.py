@@ -63,6 +63,7 @@ class EPGManager:
                     delay_seconds=self.config.delay_seconds,
                     user_agent=user_agent,
                     log_callback=self.log,
+                    prefer_affiliate_names=self.config.prefer_affiliate_names,
                 )
                 if result.success and result.file_path:
                     produced_files.append((lineup_id, result.file_path))
