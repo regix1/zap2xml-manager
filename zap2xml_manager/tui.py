@@ -295,6 +295,7 @@ class Zap2XMLManagerApp(App):
                     yield Button("Download EPG", variant="primary", id="btn-download")
                     yield Button("Save Settings", variant="default", id="btn-save")
                     yield Button("Start Server", variant="success", id="btn-server")
+                    yield Button("Status", variant="default", id="btn-status")
 
             with TabPane("Log", id="log-tab"):
                 with Container(id="log-container"):
@@ -339,6 +340,8 @@ class Zap2XMLManagerApp(App):
             self.action_save_settings()
         elif event.button.id == "btn-server":
             self._toggle_server()
+        elif event.button.id == "btn-status":
+            self._show_status()
 
     def action_save_settings(self) -> None:
         """Save current settings."""
@@ -462,6 +465,69 @@ class Zap2XMLManagerApp(App):
                 btn.variant = "success"
         except Exception:
             pass
+
+    def _get_local_ip(self) -> str:
+        """Get the local IP address."""
+        import socket
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "localhost"
+
+    def _show_status(self) -> None:
+        """Show current status in the log."""
+        from datetime import datetime, timezone, timedelta
+        from pathlib import Path
+
+        # Switch to log tab
+        tabbed = self.query_one(TabbedContent)
+        tabbed.active = "log-tab"
+
+        local_ip = self._get_local_ip()
+
+        self.log_message("=" * 50)
+        self.log_message("STATUS")
+        self.log_message("=" * 50)
+
+        # EPG File
+        output_file = self.config.output_path
+        if output_file.exists():
+            stat = output_file.stat()
+            size_kb = stat.st_size / 1024
+            size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb/1024:.1f} MB"
+            mtime = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+            self.log_message(f"EPG File: {output_file}")
+            self.log_message(f"  Size: {size_str} | Modified: {mtime}")
+        else:
+            self.log_message(f"EPG File: {output_file} (not found)")
+
+        # Refresh status
+        if self.config.last_refresh:
+            self.log_message(f"Last refresh: {self.config.last_refresh}")
+            try:
+                last = datetime.fromisoformat(self.config.last_refresh.replace("Z", "+00:00"))
+                age = datetime.now(timezone.utc) - last
+                hours_ago = age.total_seconds() / 3600
+                self.log_message(f"  Age: {hours_ago:.1f} hours ago")
+            except (ValueError, TypeError):
+                pass
+        else:
+            self.log_message("Last refresh: Never")
+
+        # Server
+        server_status = "running" if (self.server and self.server.is_running) else "stopped"
+        self.log_message(f"Server: {server_status}")
+        self.log_message(f"  URL: http://{local_ip}:{self.config.server_port}/")
+        self.log_message(f"  EPG: http://{local_ip}:{self.config.server_port}/{self.config.output_filename}")
+
+        # Config
+        self.log_message(f"Lineups: {', '.join(self.config.lineup_ids) or '(none)'}")
+        self.log_message(f"ESPN+: {'enabled' if self.config.espn_plus_enabled else 'disabled'}")
+        self.log_message("=" * 50)
 
 
 def run_tui() -> None:

@@ -77,12 +77,26 @@ def show_config_info() -> None:
     print(f"  Last refresh: {config.last_refresh or 'Never'}")
 
 
+def get_local_ip() -> str:
+    """Get the local IP address."""
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "localhost"
+
+
 def show_status() -> None:
     """Show current status including EPG files."""
     from datetime import datetime, timezone, timedelta
     from pathlib import Path
 
     config = Config.load()
+    local_ip = get_local_ip()
 
     print(f"zap2xml-manager v{__version__}")
     print("=" * 50)
@@ -145,8 +159,8 @@ def show_status() -> None:
 
     # Server Info
     print("Server:")
-    print(f"  URL: http://0.0.0.0:{config.server_port}/")
-    print(f"  EPG URL: http://0.0.0.0:{config.server_port}/{config.output_filename}")
+    print(f"  URL: http://{local_ip}:{config.server_port}/")
+    print(f"  EPG URL: http://{local_ip}:{config.server_port}/{config.output_filename}")
     print(f"  Auto-refresh: {'enabled' if config.auto_refresh_enabled else 'disabled'}", end="")
     if config.auto_refresh_enabled:
         print(f" (every {config.refresh_interval_hours}h)")
