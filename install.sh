@@ -15,22 +15,22 @@ install_packages() {
     if command -v apt-get &> /dev/null; then
         echo "Detected apt package manager..."
         apt-get update
-        apt-get install -y python3 python3-pip python3-venv
+        apt-get install -y python3 python3-pip python3-venv git
     elif command -v dnf &> /dev/null; then
         echo "Detected dnf package manager..."
-        dnf install -y python3 python3-pip
+        dnf install -y python3 python3-pip git
     elif command -v yum &> /dev/null; then
         echo "Detected yum package manager..."
-        yum install -y python3 python3-pip
+        yum install -y python3 python3-pip git
     elif command -v pacman &> /dev/null; then
         echo "Detected pacman package manager..."
-        pacman -Sy --noconfirm python python-pip
+        pacman -Sy --noconfirm python python-pip git
     elif command -v apk &> /dev/null; then
         echo "Detected apk package manager..."
-        apk add --no-cache python3 py3-pip
+        apk add --no-cache python3 py3-pip git
     else
         echo "Error: Could not detect package manager."
-        echo "Please install python3 and pip manually."
+        echo "Please install python3, pip, and git manually."
         exit 1
     fi
 }
@@ -72,9 +72,21 @@ echo "Python3: $(python3 --version)"
 echo "pip: $(python3 -m pip --version)"
 echo ""
 
-# Install the package
+# Pull latest changes if in a git repo
+if [ -d ".git" ]; then
+    echo "Pulling latest updates..."
+    git pull || echo "Warning: git pull failed, continuing with local files"
+    echo ""
+fi
+
+# Uninstall old version first
+echo "Removing old installation..."
+python3 -m pip uninstall -y zap2xml-manager 2>/dev/null || true
+
+# Install the package with force reinstall
 echo "Installing zap2xml-manager..."
-python3 -m pip install . --break-system-packages 2>/dev/null || python3 -m pip install .
+python3 -m pip install . --force-reinstall --no-cache-dir --break-system-packages 2>/dev/null || \
+python3 -m pip install . --force-reinstall --no-cache-dir
 
 echo ""
 echo "==================================="

@@ -298,7 +298,7 @@ class Zap2XMLManagerApp(App):
 
             with TabPane("Log", id="log-tab"):
                 with Container(id="log-container"):
-                    yield Log(id="log", highlight=True, markup=True)
+                    yield Log(id="log", highlight=True)
 
         yield Static("Ready", id="status-bar")
         yield Footer()
