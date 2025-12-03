@@ -42,29 +42,37 @@ class EPGRequestHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         """Handle GET requests."""
-        # Clean up the path
-        path = self.path.split("?")[0].split("#")[0]
+        try:
+            # Clean up the path
+            path = self.path.split("?")[0].split("#")[0]
 
-        # Remove leading slash
-        if path.startswith("/"):
-            path = path[1:]
+            # Remove leading slash
+            if path.startswith("/"):
+                path = path[1:]
 
-        # API endpoints
-        if path == "api/status":
-            self._send_json(self._get_status())
-            return
+            # API endpoints
+            if path == "api/status":
+                self._send_json(self._get_status())
+                return
 
-        if path == "api/refresh":
-            self._trigger_refresh()
-            return
+            if path == "api/refresh":
+                self._trigger_refresh()
+                return
 
-        # Root path - return status JSON
-        if not path or path == "/":
-            self._send_json(self._get_status())
-            return
+            # Root path - return status JSON
+            if not path or path == "/":
+                self._send_json(self._get_status())
+                return
 
-        # Serve the requested file
-        super().do_GET()
+            # Serve the requested file
+            super().do_GET()
+        except Exception as e:
+            if self.log_callback:
+                self.log_callback(f"[HTTP] Error handling request: {e}")
+            try:
+                self.send_error(500, f"Internal Server Error: {e}")
+            except Exception:
+                pass
 
     def _send_json(self, data: dict) -> None:
         """Send JSON response."""
@@ -86,19 +94,29 @@ class EPGRequestHandler(SimpleHTTPRequestHandler):
         }
 
         if self.scheduler:
-            status["scheduler"] = self.scheduler.get_status()
+            try:
+                status["scheduler"] = self.scheduler.get_status()
+            except Exception:
+                status["scheduler"] = {"error": "Unable to get scheduler status"}
 
         # List EPG files
         output_dir = Path(self.config.output_dir) if self.config else Path(".")
         files = []
-        if output_dir.exists():
-            for f in output_dir.iterdir():
-                if f.suffix.lower() == ".xml":
-                    files.append({
-                        "name": f.name,
-                        "size": f.stat().st_size,
-                        "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
-                    })
+        try:
+            if output_dir.exists():
+                for f in output_dir.iterdir():
+                    if f.suffix.lower() == ".xml":
+                        try:
+                            stat = f.stat()
+                            files.append({
+                                "name": f.name,
+                                "size": stat.st_size,
+                                "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                            })
+                        except (OSError, IOError):
+                            pass
+        except (OSError, IOError):
+            pass
         status["files"] = files
 
         return status
@@ -180,7 +198,11 @@ class EPGServer:
     def _serve(self) -> None:
         """Run the server (called in background thread)."""
         if self.server:
-            self.server.serve_forever()
+            try:
+                self.server.serve_forever()
+            except Exception as e:
+                self.log_callback(f"Server error: {e}")
+                self._running = False
 
     def _on_refresh_complete(self, success: bool, message: str) -> None:
         """Called when a scheduled refresh completes."""
@@ -200,6 +222,9 @@ class EPGServer:
     @property
     def is_running(self) -> bool:
         """Check if server is running."""
+        # Also verify the thread is actually alive
+        if self._running and self.thread and not self.thread.is_alive():
+            self._running = False
         return self._running
 
     @property

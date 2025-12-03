@@ -343,7 +343,7 @@ class Zap2XMLManagerApp(App):
         elif event.button.id == "btn-status":
             self._show_status()
 
-    def action_save_settings(self) -> None:
+    def action_save_settings(self, update_status: bool = True) -> None:
         """Save current settings."""
         form = self.query_one("#settings-form", SettingsForm)
         values = form.get_config_values()
@@ -364,7 +364,8 @@ class Zap2XMLManagerApp(App):
 
         self.config.save()
         self.log_message("Settings saved", level="success")
-        self.update_status("Settings saved")
+        if update_status:
+            self.update_status("Settings saved")
 
     def action_download(self) -> None:
         """Download EPG data."""
@@ -427,13 +428,15 @@ class Zap2XMLManagerApp(App):
 
         self.server = EPGServer(
             self.config,
+            host=self.config.server_host,
             port=self.config.server_port,
             log_callback=log_callback,
         )
 
         if self.server.start():
             self._update_server_button(True)
-            self.update_status(f"Server running on http://0.0.0.0:{self.config.server_port}/")
+            local_ip = self._get_local_ip()
+            self.update_status(f"Server running on http://{local_ip}:{self.config.server_port}/")
         else:
             self.log_message("Failed to start server", level="error")
 
@@ -449,8 +452,8 @@ class Zap2XMLManagerApp(App):
         if self.server and self.server.is_running:
             self._stop_server()
         else:
-            # Save settings first to get latest port
-            self.action_save_settings()
+            # Save settings first to get latest port (don't update status - server start will do that)
+            self.action_save_settings(update_status=False)
             self._start_server()
 
     def _update_server_button(self, running: bool) -> None:
