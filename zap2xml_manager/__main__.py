@@ -77,6 +77,92 @@ def show_config_info() -> None:
     print(f"  Last refresh: {config.last_refresh or 'Never'}")
 
 
+def show_status() -> None:
+    """Show current status including EPG files."""
+    from datetime import datetime, timezone, timedelta
+    from pathlib import Path
+
+    config = Config.load()
+
+    print(f"zap2xml-manager v{__version__}")
+    print("=" * 50)
+    print()
+
+    # EPG File Status
+    print("EPG Files:")
+    output_dir = Path(config.output_dir)
+    output_file = config.output_path
+
+    if output_file.exists():
+        stat = output_file.stat()
+        size_kb = stat.st_size / 1024
+        size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb/1024:.1f} MB"
+        mtime = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        print(f"  {output_file}")
+        print(f"  Size: {size_str} | Modified: {mtime}")
+    else:
+        print(f"  {output_file}")
+        print("  (not found - run 'zap2xml-manager download' first)")
+
+    print()
+
+    # List all XML files in output dir
+    if output_dir.exists():
+        xml_files = list(output_dir.glob("*.xml"))
+        if len(xml_files) > 1:
+            print("All XML files in output directory:")
+            for f in sorted(xml_files, key=lambda x: x.stat().st_mtime, reverse=True):
+                stat = f.stat()
+                size_kb = stat.st_size / 1024
+                size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb/1024:.1f} MB"
+                print(f"  {f.name} ({size_str})")
+            print()
+
+    # Refresh Status
+    print("Refresh Status:")
+    if config.last_refresh:
+        print(f"  Last refresh: {config.last_refresh}")
+        try:
+            last = datetime.fromisoformat(config.last_refresh.replace("Z", "+00:00"))
+            age = datetime.now(timezone.utc) - last
+            hours_ago = age.total_seconds() / 3600
+            print(f"  Age: {hours_ago:.1f} hours ago")
+
+            if config.auto_refresh_enabled:
+                next_refresh = last + timedelta(hours=config.refresh_interval_hours)
+                time_until = next_refresh - datetime.now(timezone.utc)
+                if time_until.total_seconds() > 0:
+                    hours_until = time_until.total_seconds() / 3600
+                    print(f"  Next refresh: in {hours_until:.1f} hours")
+                else:
+                    print("  Next refresh: due now")
+        except (ValueError, TypeError):
+            pass
+    else:
+        print("  Last refresh: Never")
+
+    print()
+
+    # Server Info
+    print("Server:")
+    print(f"  URL: http://0.0.0.0:{config.server_port}/")
+    print(f"  EPG URL: http://0.0.0.0:{config.server_port}/{config.output_filename}")
+    print(f"  Auto-refresh: {'enabled' if config.auto_refresh_enabled else 'disabled'}", end="")
+    if config.auto_refresh_enabled:
+        print(f" (every {config.refresh_interval_hours}h)")
+    else:
+        print()
+
+    print()
+
+    # Configuration Summary
+    print("Configuration:")
+    print(f"  Lineups: {', '.join(config.lineup_ids) or '(none)'}")
+    print(f"  Country: {config.country}")
+    print(f"  Postal: {config.postal_code or '(none)'}")
+    print(f"  ESPN+: {'enabled' if config.espn_plus_enabled else 'disabled'}")
+
+
 def run_server(args: argparse.Namespace) -> int:
     """Run the HTTP server to serve EPG files."""
     from .server import EPGServer
@@ -221,6 +307,9 @@ def main() -> int:
     cfg_parser.add_argument("-p", "--port", type=int, help="Set server port")
     cfg_parser.add_argument("-o", "--output-dir", help="Set output directory")
 
+    # Status command
+    status_parser = subparsers.add_parser("status", help="Show current status and EPG file info")
+
     args = parser.parse_args()
 
     # Default to TUI if no command specified
@@ -253,6 +342,10 @@ def main() -> int:
 
     elif args.command == "serve":
         return run_server(args)
+
+    elif args.command == "status":
+        show_status()
+        return 0
 
     return 0
 

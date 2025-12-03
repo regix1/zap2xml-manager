@@ -7,6 +7,7 @@ with integrated scheduling for automatic EPG refreshes.
 
 import json
 import os
+import socket
 import threading
 from datetime import datetime
 from http.server import HTTPServer, SimpleHTTPRequestHandler
@@ -14,6 +15,11 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .config import Config
+
+
+class ReusableHTTPServer(HTTPServer):
+    """HTTPServer with SO_REUSEADDR enabled."""
+    allow_reuse_address = True
 
 
 class EPGRequestHandler(SimpleHTTPRequestHandler):
@@ -161,7 +167,7 @@ class EPGServer:
         EPGRequestHandler.scheduler = self.scheduler
 
         try:
-            self.server = HTTPServer((self.host, self.port), EPGRequestHandler)
+            self.server = ReusableHTTPServer((self.host, self.port), EPGRequestHandler)
             self.thread = threading.Thread(target=self._serve, daemon=True)
             self.thread.start()
             self._running = True
