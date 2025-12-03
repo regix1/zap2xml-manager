@@ -49,44 +49,22 @@ class EPGRequestHandler(SimpleHTTPRequestHandler):
     protocol_version = "HTTP/1.1"  # Use HTTP/1.1 for better compatibility
 
     def __init__(self, *args, **kwargs):
-        import sys
-        print(f"[DEBUG] Handler __init__ called", file=sys.stderr, flush=True)
-
         # Set the directory to serve files from
         try:
             if self.config and self.config.output_dir:
                 self.directory = str(Path(self.config.output_dir))
             else:
                 self.directory = "."
-            print(f"[DEBUG] Directory set to: {self.directory}", file=sys.stderr, flush=True)
-        except Exception as e:
-            print(f"[DEBUG] Error setting directory: {e}", file=sys.stderr, flush=True)
-            if self.log_callback:
-                self.log_callback(f"[HTTP] Error setting directory: {e}")
+        except Exception:
             self.directory = "."
 
-        try:
-            super().__init__(*args, directory=self.directory, **kwargs)
-            print(f"[DEBUG] Handler __init__ completed", file=sys.stderr, flush=True)
-        except Exception as e:
-            print(f"[DEBUG] Error in handler init: {e}", file=sys.stderr, flush=True)
-            import traceback
-            traceback.print_exc(file=sys.stderr)
-            if self.log_callback:
-                self.log_callback(f"[HTTP] Error in handler init: {e}")
-            raise
+        super().__init__(*args, directory=self.directory, **kwargs)
 
     def handle(self):
         """Handle the request with error catching."""
-        import sys
-        print(f"[DEBUG] handle() called", file=sys.stderr, flush=True)
         try:
             super().handle()
-            print(f"[DEBUG] handle() completed", file=sys.stderr, flush=True)
         except Exception as e:
-            print(f"[DEBUG] Handler error: {e}", file=sys.stderr, flush=True)
-            import traceback
-            traceback.print_exc(file=sys.stderr)
             if self.log_callback:
                 self.log_callback(f"[HTTP] Handler error: {e}")
 
@@ -101,9 +79,6 @@ class EPGRequestHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         """Handle GET requests."""
-        import sys
-        print(f"[DEBUG] do_GET called: {self.path}", file=sys.stderr, flush=True)
-
         try:
             # Clean up the path
             path = self.path.split("?")[0].split("#")[0]
@@ -112,16 +87,12 @@ class EPGRequestHandler(SimpleHTTPRequestHandler):
             if path.startswith("/"):
                 path = path[1:]
 
-            print(f"[DEBUG] Cleaned path: '{path}'", file=sys.stderr, flush=True)
-
             # API endpoints
             if path == "api/status":
-                print("[DEBUG] Serving api/status", file=sys.stderr, flush=True)
                 self._send_json(self._get_status())
                 return
 
             if path == "api/health" or path == "health":
-                print("[DEBUG] Serving health", file=sys.stderr, flush=True)
                 self._send_json({"status": "ok", "time": datetime.now().isoformat()})
                 return
 
@@ -131,17 +102,17 @@ class EPGRequestHandler(SimpleHTTPRequestHandler):
 
             # Root path - return status JSON
             if not path or path == "/":
-                print("[DEBUG] Serving root status", file=sys.stderr, flush=True)
                 self._send_json(self._get_status())
                 return
 
-            # Serve the requested file
-            print(f"[DEBUG] Serving file: {path}", file=sys.stderr, flush=True)
+            # Serve XML files as downloads
+            if path.endswith(".xml"):
+                self._serve_xml_file(path)
+                return
+
+            # Serve other files normally
             super().do_GET()
         except Exception as e:
-            print(f"[DEBUG] Exception in do_GET: {e}", file=sys.stderr, flush=True)
-            import traceback
-            traceback.print_exc(file=sys.stderr)
             if self.log_callback:
                 self.log_callback(f"[HTTP] Error handling request: {e}")
             try:
@@ -162,6 +133,27 @@ class EPGRequestHandler(SimpleHTTPRequestHandler):
         except Exception as e:
             if self.log_callback:
                 self.log_callback(f"[HTTP] Error sending JSON: {e}")
+
+    def _serve_xml_file(self, filename: str) -> None:
+        """Serve an XML file as a download."""
+        try:
+            file_path = Path(self.directory) / filename
+            if not file_path.exists():
+                self.send_error(404, f"File not found: {filename}")
+                return
+
+            content = file_path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/xml")
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            self.end_headers()
+            self.wfile.write(content)
+            self.wfile.flush()
+        except Exception as e:
+            if self.log_callback:
+                self.log_callback(f"[HTTP] Error serving XML file: {e}")
+            self.send_error(500, f"Error serving file: {e}")
 
     def _get_status(self) -> dict:
         """Get server and scheduler status."""
