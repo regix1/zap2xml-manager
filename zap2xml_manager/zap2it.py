@@ -252,14 +252,17 @@ def fetch_zap2it_epg(
                 for ch in data.get("channels", []) or []:
                     cid = str(ch.get("channelId"))
                     if cid not in channels_map:
-                        # Log raw API fields for first few channels to see what's available
-                        if len(channels_map) < 3:
-                            log(f"    Raw API fields: {list(ch.keys())}")
+                        # Log raw API values for first few channels
+                        if len(channels_map) < 5:
+                            log(f"    Raw: callSign={ch.get('callSign')!r}, "
+                                f"affiliateName={ch.get('affiliateName')!r}, "
+                                f"affiliateCallSign={ch.get('affiliateCallSign')!r}, "
+                                f"stationGenres={ch.get('stationGenres')!r}")
                         normalized = _normalize_channel(ch)
                         channels_map[cid] = normalized
                         # Log channel info
                         log(f"    [{cid}] {normalized.get('callSign')} | "
-                            f"Name: {normalized.get('stationName') or '(none)'}")
+                            f"Affiliate: {normalized.get('affiliateName') or '(none)'}")
                     for ev in ch.get("events", []) or []:
                         _merge_filter_tags(ev)
                         channels_map[cid]["events"].append(ev)
