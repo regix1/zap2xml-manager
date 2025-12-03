@@ -113,21 +113,40 @@ def _build_url(lineup_id: str, headend_id: str, country: str, postal: str, time_
 
 
 def _normalize_channel(ch: dict[str, Any]) -> dict[str, Any]:
-    """Normalize channel data."""
-    # Get the affiliate/network name (e.g., "ABC", "CBS", "Cartoon Network")
+    """Normalize channel data from API response."""
+    call_sign = ch.get("callSign") or ""
+
+    # Get affiliate/network from all possible API fields
+    # The API may return: affiliateCallSign, affiliateName, affiliate, networkAffiliation
     affiliate = (
-        ch.get("affiliateName") or
         ch.get("affiliateCallSign") or
+        ch.get("affiliateName") or
         ch.get("affiliate") or
+        ch.get("networkAffiliation") or
+        ch.get("network") or
         ""
     )
-    # Get the station name (full name like "WABC-TV New York")
-    station_name = ch.get("name") or ch.get("stationName") or ""
+
+    # Skip unhelpful values
+    if affiliate.lower() in ("independent", "ind", ""):
+        affiliate = ""
+
+    # Get the station name (full name like "WABC-TV New York" or "Cartoon Network")
+    station_name = (
+        ch.get("name") or
+        ch.get("stationName") or
+        ch.get("displayName") or
+        ""
+    )
+
+    # Get preferred/enhanced call sign if available
+    preferred_call_sign = ch.get("preferredCallSign") or ch.get("enhancedCallSign") or ""
 
     return {
         "stationId": ch.get("stationId") or ch.get("channelId"),
         "channelId": ch.get("channelId"),
-        "callSign": ch.get("callSign"),
+        "callSign": call_sign,
+        "preferredCallSign": preferred_call_sign,
         "channelNo": ch.get("channelNo") or ch.get("channel"),
         "affiliateName": affiliate,
         "stationName": station_name,
@@ -235,8 +254,10 @@ def fetch_zap2it_epg(
                     if cid not in channels_map:
                         normalized = _normalize_channel(ch)
                         channels_map[cid] = normalized
-                        # Log channel info for debugging
-                        log(f"    Channel: {normalized.get('callSign')} | "
+                        # Log channel info for debugging - show all relevant fields
+                        pref = normalized.get('preferredCallSign')
+                        log(f"    [{cid}] {normalized.get('callSign')}"
+                            f"{f' -> {pref}' if pref else ''} | "
                             f"Affiliate: {normalized.get('affiliateName') or '(none)'} | "
                             f"Name: {normalized.get('stationName') or '(none)'}")
                     for ev in ch.get("events", []) or []:
@@ -290,35 +311,42 @@ def _write_xmltv(channels: list[dict[str, Any]], out_path: Path, prefer_affiliat
         ch_el = ET.SubElement(tv, "channel", {"id": cid})
 
         call_sign = ch.get("callSign") or ""
+        preferred_call_sign = ch.get("preferredCallSign") or ""
         affiliate = ch.get("affiliateName") or ""
         station_name = ch.get("stationName") or ""
         channel_no = ch.get("channelNo") or ""
 
+        # Use preferred call sign if available (more readable)
+        display_call_sign = preferred_call_sign or call_sign
+
         # Determine the best display name
-        # Priority: station_name > affiliate > call_sign
-        friendly_name = station_name or affiliate or call_sign
+        # Priority: station_name > affiliate > preferred_call_sign > call_sign
+        friendly_name = station_name or affiliate or display_call_sign
 
         # Build display names based on preference
         if prefer_affiliate_names:
             # Put friendly name first (station name or affiliate like "ABC", "Cartoon Network")
             if friendly_name:
                 ET.SubElement(ch_el, "display-name").text = str(friendly_name)
+            # Add combined name if we have both affiliate and call sign
+            if affiliate and display_call_sign and affiliate != display_call_sign:
+                ET.SubElement(ch_el, "display-name").text = f"{affiliate} ({display_call_sign})"
             # Add call sign as secondary if different from friendly name
-            if call_sign and call_sign != friendly_name:
-                ET.SubElement(ch_el, "display-name").text = str(call_sign)
+            if display_call_sign and display_call_sign != friendly_name:
+                ET.SubElement(ch_el, "display-name").text = str(display_call_sign)
             # Add channel number
             if channel_no:
                 ET.SubElement(ch_el, "display-name").text = str(channel_no)
         else:
             # Default: call sign first, then other names
-            if call_sign:
-                ET.SubElement(ch_el, "display-name").text = str(call_sign)
-            if affiliate and affiliate != call_sign:
+            if display_call_sign:
+                ET.SubElement(ch_el, "display-name").text = str(display_call_sign)
+            if affiliate and affiliate != display_call_sign:
                 ET.SubElement(ch_el, "display-name").text = str(affiliate)
-            if station_name and station_name != call_sign and station_name != affiliate:
+            if station_name and station_name != display_call_sign and station_name != affiliate:
                 ET.SubElement(ch_el, "display-name").text = str(station_name)
-            if call_sign and affiliate:
-                ET.SubElement(ch_el, "display-name").text = f"{call_sign} {affiliate}"
+            if display_call_sign and affiliate:
+                ET.SubElement(ch_el, "display-name").text = f"{display_call_sign} {affiliate}"
 
         thumb = ch.get("thumbnail")
         if thumb:
