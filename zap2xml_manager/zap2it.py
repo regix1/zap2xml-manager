@@ -33,6 +33,52 @@ COUNTRY_3 = {"US": "USA", "CA": "CAN"}
 # Streaming lineups that require postal codes
 STREAMING_LINEUPS = {"HULUTV", "YTTV", "FUBOTV", "SLING", "DIRECTVSTR", "VIDGO", "FRNDLYTV", "PHILO"}
 
+# Map full network names to common abbreviations
+NETWORK_ABBREVIATIONS = {
+    "AMERICAN BROADCASTING COMPANY": "ABC",
+    "NATIONAL BROADCASTING COMPANY": "NBC",
+    "CBS TELEVISION NETWORK": "CBS",
+    "FOX ENTERTAINMENT": "FOX",
+    "FOX BROADCASTING COMPANY": "FOX",
+    "THE CW TELEVISION NETWORK": "CW",
+    "PUBLIC BROADCASTING SERVICE": "PBS",
+    "TRINITY BROADCASTING NETWORK": "TBN",
+    "HOME SHOPPING NETWORK": "HSN",
+    "ENTERTAINMENT AND SPORTS PROGRAMMING NETWORK": "ESPN",
+    "CARTOON NETWORK": "CN",
+    "DISCOVERY CHANNEL": "DISC",
+    "HISTORY CHANNEL": "HIST",
+    "CABLE NEWS NETWORK": "CNN",
+    "MUSIC TELEVISION": "MTV",
+    "NICKELODEON": "NICK",
+    "DISNEY CHANNEL": "DISNEY",
+    "ANIMAL PLANET": "ANPL",
+    "FOOD NETWORK": "FOOD",
+    "HGTV": "HGTV",
+    "LIFETIME TELEVISION": "LIFE",
+    "SYFY": "SYFY",
+    "SPIKE TV": "SPIKE",
+    "BRAVO": "BRAVO",
+    "USA NETWORK": "USA",
+    "TNT": "TNT",
+    "TBS": "TBS",
+    "COMEDY CENTRAL": "COMEDY",
+    "FX NETWORKS": "FX",
+    "AMC": "AMC",
+    "A&E NETWORK": "A&E",
+    "WEATHER CHANNEL": "TWC",
+    "TELEMUNDO": "TELE",
+    "UNIVISION": "UNIV",
+}
+
+
+def _get_network_abbrev(full_name: str) -> str:
+    """Get abbreviated network name from full name."""
+    if not full_name:
+        return ""
+    upper = full_name.upper().strip()
+    return NETWORK_ABBREVIATIONS.get(upper, "")
+
 
 class FetchResult:
     """Result of a fetch operation."""
@@ -151,13 +197,32 @@ def _normalize_channel(ch: dict[str, Any]) -> dict[str, Any]:
             preferred_call_sign = val
             break
 
+    # Get channel number
+    channel_no = ch.get("channelNo") or ch.get("channel") or ""
+
+    # Build friendly display name (e.g., "ABC 7.1", "CBS 2.1")
+    network_abbrev = _get_network_abbrev(affiliate)
+    if network_abbrev and channel_no:
+        # Extract just the major channel number for display (e.g., "7" from "7.1")
+        major_ch = str(channel_no).split(".")[0]
+        friendly_name = f"{network_abbrev} {major_ch}"
+    elif network_abbrev:
+        friendly_name = network_abbrev
+    elif affiliate:
+        # Use affiliate name if no abbreviation exists
+        friendly_name = affiliate
+    else:
+        friendly_name = call_sign
+
     return {
         "stationId": ch.get("stationId") or ch.get("channelId"),
         "channelId": ch.get("channelId"),
         "callSign": call_sign,
         "preferredCallSign": preferred_call_sign,
-        "channelNo": ch.get("channelNo") or ch.get("channel"),
+        "channelNo": channel_no,
         "affiliateName": affiliate,
+        "networkAbbrev": network_abbrev,
+        "friendlyName": friendly_name,
         "stationName": station_name,
         "thumbnail": ch.get("thumbnail"),
         "events": [],
@@ -269,9 +334,11 @@ def fetch_zap2it_epg(
                                 f"stationGenres={ch.get('stationGenres')!r}")
                         normalized = _normalize_channel(ch)
                         channels_map[cid] = normalized
-                        # Log channel info
-                        log(f"    [{cid}] {normalized.get('callSign')} | "
-                            f"Affiliate: {normalized.get('affiliateName') or '(none)'}")
+                        # Log channel info with friendly name
+                        friendly = normalized.get('friendlyName') or normalized.get('callSign')
+                        ch_no = normalized.get('channelNo') or ''
+                        affiliate_display = normalized.get('networkAbbrev') or normalized.get('affiliateName') or '(none)'
+                        log(f"    [{ch_no}] {friendly} ({normalized.get('callSign')}) | {affiliate_display}")
                     for ev in ch.get("events", []) or []:
                         _merge_filter_tags(ev)
                         channels_map[cid]["events"].append(ev)
@@ -325,40 +392,41 @@ def _write_xmltv(channels: list[dict[str, Any]], out_path: Path, prefer_affiliat
         call_sign = ch.get("callSign") or ""
         preferred_call_sign = ch.get("preferredCallSign") or ""
         affiliate = ch.get("affiliateName") or ""
+        network_abbrev = ch.get("networkAbbrev") or ""
+        friendly_name = ch.get("friendlyName") or ""
         station_name = ch.get("stationName") or ""
         channel_no = ch.get("channelNo") or ""
 
         # Use preferred call sign if available (more readable)
         display_call_sign = preferred_call_sign or call_sign
 
-        # Determine the best display name
-        # Priority: station_name > affiliate > preferred_call_sign > call_sign
-        friendly_name = station_name or affiliate or display_call_sign
-
-        # Build display names based on preference
-        if prefer_affiliate_names:
-            # Put friendly name first (station name or affiliate like "ABC", "Cartoon Network")
+        # Build display names - friendly name first (e.g., "ABC 7"), then alternatives
+        if prefer_affiliate_names or network_abbrev:
+            # Put friendly name first (e.g., "ABC 7", "CBS 2")
             if friendly_name:
                 ET.SubElement(ch_el, "display-name").text = str(friendly_name)
-            # Add combined name if we have both affiliate and call sign
-            if affiliate and display_call_sign and affiliate != display_call_sign:
-                ET.SubElement(ch_el, "display-name").text = f"{affiliate} ({display_call_sign})"
-            # Add call sign as secondary if different from friendly name
+            # Add network abbreviation if different from friendly name
+            if network_abbrev and network_abbrev != friendly_name:
+                ET.SubElement(ch_el, "display-name").text = str(network_abbrev)
+            # Add call sign
             if display_call_sign and display_call_sign != friendly_name:
                 ET.SubElement(ch_el, "display-name").text = str(display_call_sign)
             # Add channel number
             if channel_no:
                 ET.SubElement(ch_el, "display-name").text = str(channel_no)
-        else:
-            # Default: call sign first, then other names
-            if display_call_sign:
-                ET.SubElement(ch_el, "display-name").text = str(display_call_sign)
-            if affiliate and affiliate != display_call_sign:
+            # Add full affiliate name if different
+            if affiliate and affiliate != friendly_name and affiliate != network_abbrev:
                 ET.SubElement(ch_el, "display-name").text = str(affiliate)
-            if station_name and station_name != display_call_sign and station_name != affiliate:
-                ET.SubElement(ch_el, "display-name").text = str(station_name)
-            if display_call_sign and affiliate:
-                ET.SubElement(ch_el, "display-name").text = f"{display_call_sign} {affiliate}"
+        else:
+            # Fallback for channels without network abbreviation
+            if friendly_name:
+                ET.SubElement(ch_el, "display-name").text = str(friendly_name)
+            if display_call_sign and display_call_sign != friendly_name:
+                ET.SubElement(ch_el, "display-name").text = str(display_call_sign)
+            if channel_no:
+                ET.SubElement(ch_el, "display-name").text = str(channel_no)
+            if affiliate and affiliate != friendly_name:
+                ET.SubElement(ch_el, "display-name").text = str(affiliate)
 
         thumb = ch.get("thumbnail")
         if thumb:
